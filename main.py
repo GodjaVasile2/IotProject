@@ -1,52 +1,62 @@
-from coapthon.client.helperclient import HelperClient
+import asyncio
+import aiocoap
+import cbor
+import time
 
-# Replace <SERVER_IP> with the public IP or hostname of your CoAP server
-SERVER_IP = "<SERVER_IP>"
-SERVER_PORT = 3002  # CoAP server port
-RESOURCE_PATH = "parking-status"  # CoAP resource path
+# Replace <SERVER_IP> with the actual IP address of your CoAP server
+SERVER_URL = "coap://127.0.0.1:3002/parking-status"  # Update with your server's IP and port
 
-def send_parking_data(spot_id, latitude, longitude, status):
-    # Initialize CoAP client
-    client = HelperClient(server=(SERVER_IP, SERVER_PORT))
+async def send_parking_data(spot_id, latitude, longitude, status):
+    timestamp = int(time.time() * 1000)  # Current time in milliseconds
 
-    # Create payload
-    payload = f"""
-    {{
-        "spot_id": "{spot_id}",
-        "latitude": {latitude},
-        "longitude": {longitude},
-        "status": "{status}"
-    }}
-    """
+    # Prepare the payload
+    payload = {
+        "timestamp": timestamp,
+        "parking_status": [
+            {
+                "id": spot_id,
+                "lat": latitude,
+                "lon": longitude,
+                "s": status,  # 1 = free, 0 = occupied
+            }
+        ]
+    }
+    encoded_payload = cbor.dumps(payload)
+
+    # Initialize CoAP context
+    context = await aiocoap.Context.create_client_context()
+    if context is None:
+        print("Failed to initialize CoAP context")
+        return
 
     try:
-        # Send a POST request
-        response = client.post(RESOURCE_PATH, payload)
-        if response:
-            print(f"Response Code: {response.code}")
-            print(f"Response Payload: {response.payload}")
-        else:
-            print("No response received from server.")
+        request = aiocoap.Message(code=aiocoap.POST, uri=SERVER_URL, payload=encoded_payload)
+        response = await context.request(request).response
+        print(f"Response Code: {response.code}\nResponse Payload: {response.payload.decode()}")
     except Exception as e:
         print(f"Failed to send data: {e}")
-    finally:
-        # Stop the client
-        client.stop()
 
-if __name__ == "__main__":
+async def main():
     spot_id = "spot_1"
     latitude = 45.1234
     longitude = 25.1234
 
     print("Type '1' for free, '0' for occupied, or 'q' to quit.")
+
     while True:
         user_input = input("Enter parking spot status (1/0): ").strip()
+
         if user_input == "1":
-            send_parking_data(spot_id, latitude, longitude, "free")
+            await send_parking_data(spot_id, latitude, longitude, 1)
+            print(f"Status for {spot_id} sent as 'free'.")
         elif user_input == "0":
-            send_parking_data(spot_id, latitude, longitude, "occupied")
+            await send_parking_data(spot_id, latitude, longitude, 0)
+            print(f"Status for {spot_id} sent as 'occupied'.")
         elif user_input.lower() == "q":
-            print("Exiting.")
+            print("Exiting program.")
             break
         else:
-            print("Invalid input. Try again.")
+            print("Invalid input. Type '1', '0', or 'q'.")
+
+if __name__ == "__main__":
+    asyncio.run(main())
