@@ -1,12 +1,11 @@
 import asyncio
-import aiocoap
-import cbor
+import paho.mqtt.client as mqtt
+import json
 import RPi.GPIO as GPIO
 import time
 
 # GPIO setup
 GPIO.setmode(GPIO.BOARD)
-SERVER_URL = "coap://13.53.114.140:3002/parking-status" 
 
 trig = 16
 echo = 18
@@ -20,35 +19,42 @@ GPIO.setup(redled, GPIO.OUT)
 GPIO.setup(greenled, GPIO.OUT)
 GPIO.setup(blueled, GPIO.OUT)
 
-# Helper function to send parking data
-async def send_parking_data(spot_id, latitude, longitude, status):
-    timestamp = int(time.time() * 1000)  # Current timestamp in milliseconds
+BROKER = "broker.hivemq.com"  # Public MQTT broker
+PORT = 1883
+TOPIC_SEND = "parking/status"
+TOPIC_RECEIVE = "parking/commands"
 
-    payload = {
-        "timestamp": timestamp,
-        "parking_status": [
-            {
-                "id": 1,
-                "lat": latitude,
-                "lon": longitude,
-                "s": status, 
-            }
-        ]
-    }
-    encoded_payload = cbor.dumps(payload)
+current_status = None  # None: unknown, 0: occupied, 1: free, 2: reserved
 
-    # Initialize CoAP context
-    context = await aiocoap.Context.create_client_context()
-    if context is None:
-        print("Failed to initialize CoAP context")
-        return
-
+# Callback for receiving commands from MQTT
+def on_message(client, userdata, message):
+    global current_status
     try:
-        request = aiocoap.Message(code=aiocoap.POST, uri=SERVER_URL, payload=encoded_payload)
-        response = await context.request(request).response
-        print(f"Response Code: {response.code}\nResponse Payload: {response.payload.decode()}")
+        command = json.loads(message.payload.decode())
+        print(f"Received command: {command}")
+
+        if command.get("spot_id") == 1:  # Only process commands for this spot
+            new_status = command.get("status")
+
+            if new_status == 2:  # Reserved
+                GPIO.output(blueled, GPIO.HIGH)
+                GPIO.output(greenled, GPIO.LOW)
+                GPIO.output(redled, GPIO.LOW)
+                print("Spot reserved.")
+            elif new_status == 1:  # Free
+                GPIO.output(greenled, GPIO.HIGH)
+                GPIO.output(redled, GPIO.LOW)
+                GPIO.output(blueled, GPIO.LOW)
+                print("Spot is now free.")
+            elif new_status == 0:  # Occupied
+                GPIO.output(redled, GPIO.HIGH)
+                GPIO.output(greenled, GPIO.LOW)
+                GPIO.output(blueled, GPIO.LOW)
+                print("Spot is now occupied.")
+
+            current_status = new_status
     except Exception as e:
-        print(f"Failed to send data: {e}")
+        print(f"Error processing command: {e}")
 
 # Function to calculate distance using ultrasonic sensor
 def calculate_distance():
@@ -72,48 +78,50 @@ def calculate_distance():
     distance = (34300 / 2) * duration
     return distance
 
+# Function to send parking data
+def send_parking_data(client, spot_id, status):
+    payload = {
+        "spot_id": spot_id,
+        "status": status
+    }
+    client.publish(TOPIC_SEND, json.dumps(payload))
+    print(f"Published status: {payload}")
+
 # Main logic
 async def main():
-    spot_id = "spot_1"
-    latitude = 45.1234
-    longitude = 25.1234
+    global current_status
 
-    current_status = None  # None: unknown, 0: occupied, 1: free
+    client = mqtt.Client()
+    client.on_message = on_message
 
+    client.connect(BROKER, PORT, 60)
+    client.subscribe(TOPIC_RECEIVE)
+
+    client.loop_start()
+
+    spot_id = 1
     print("Monitoring parking spot...")
 
-    while True:
-        try:
-            # Measure distance
+    try:
+        while True:
             distance = calculate_distance()
             print(f"Measured Distance: {distance:.2f} cm")
 
             # Determine status based on distance
-            if distance < 10:
-                new_status = 0  # Occupied
-                GPIO.output(greenled, GPIO.LOW)
-                GPIO.output(redled, GPIO.HIGH)
-            else:
-                new_status = 1  # Free
-                GPIO.output(redled, GPIO.LOW)
-                GPIO.output(greenled, GPIO.HIGH)
+            new_status = 1 if distance >= 10 else 0
 
             # Send data only if status has changed
             if new_status != current_status:
                 current_status = new_status
-                await send_parking_data(spot_id, latitude, longitude, current_status)
-                print(f"Status updated and sent: {'Free' if current_status == 1 else 'Occupied'}")
+                send_parking_data(client, spot_id, current_status)
 
             time.sleep(1)  # Small delay to avoid rapid re-triggering
-        except KeyboardInterrupt:
-            print("Exiting monitoring...")
-            break
-        except Exception as e:
-            print(f"Error: {e}")
-            break
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Exiting monitoring...")
     finally:
         GPIO.cleanup()
+        client.loop_stop()
+        client.disconnect()
+
+if __name__ == "__main__":
+    asyncio.run(main())
