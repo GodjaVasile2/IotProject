@@ -12,14 +12,12 @@ echo = 18
 redled = 8
 greenled = 10
 blueled = 12
-yellowled = 11  # Add yellow LED
 
 GPIO.setup(trig, GPIO.OUT)
 GPIO.setup(echo, GPIO.IN)
 GPIO.setup(redled, GPIO.OUT)
 GPIO.setup(greenled, GPIO.OUT)
 GPIO.setup(blueled, GPIO.OUT)
-GPIO.setup(yellowled, GPIO.OUT)
 
 BROKER = "broker.hivemq.com"  # Public MQTT broker
 PORT = 1883
@@ -44,9 +42,8 @@ def on_message(client, userdata, message):
 
             # Only process status 2 (reserved)
             if new_status == 2:
-                GPIO.output(yellowled, GPIO.HIGH)  # Yellow LED for reserved
-                GPIO.output(greenled, GPIO.LOW)
-                GPIO.output(redled, GPIO.LOW)
+                GPIO.output(redled, GPIO.HIGH)  # Yellow color: Red + Green
+                GPIO.output(greenled, GPIO.HIGH)
                 GPIO.output(blueled, GPIO.LOW)
                 print("Spot reserved.")
                 current_status = new_status
@@ -125,12 +122,10 @@ async def main():
                     GPIO.output(greenled, GPIO.HIGH)
                     GPIO.output(redled, GPIO.LOW)
                     GPIO.output(blueled, GPIO.LOW)
-                    GPIO.output(yellowled, GPIO.LOW)
                 elif new_status == 0:  # Occupied
                     GPIO.output(redled, GPIO.HIGH)
                     GPIO.output(greenled, GPIO.LOW)
                     GPIO.output(blueled, GPIO.LOW)
-                    GPIO.output(yellowled, GPIO.LOW)
 
             time.sleep(1)  # Small delay to avoid rapid re-triggering
     except KeyboardInterrupt:
