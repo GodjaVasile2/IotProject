@@ -3,8 +3,6 @@ import paho.mqtt.client as mqtt
 import json
 import RPi.GPIO as GPIO
 import time
-from time import sleep
-import threading
 
 # GPIO setup
 GPIO.setmode(GPIO.BOARD)
@@ -14,26 +12,15 @@ echo = 18
 redled = 8
 greenled = 10
 blueled = 12
-servo_pin = 7  # Add servo motor pin
 
 GPIO.setup(trig, GPIO.OUT)
 GPIO.setup(echo, GPIO.IN)
 GPIO.setup(redled, GPIO.OUT)
 GPIO.setup(greenled, GPIO.OUT)
 GPIO.setup(blueled, GPIO.OUT)
-GPIO.setup(servo_pin, GPIO.OUT)
+GPIO.setup(22, GPIO.OUT)
 
-# Setup servo motor
-servo = GPIO.PWM(servo_pin, 50)  # 50 Hz
-servo.start(0)
-
-def rotate_servo(angle):
-    duty = (angle / 18) + 2  # Convert angle to duty cycle
-    GPIO.output(servo_pin, True)
-    servo.ChangeDutyCycle(duty)
-    sleep(0.5)
-    GPIO.output(servo_pin, False)
-    servo.ChangeDutyCycle(0)
+servo = GPIO.PWM(22,50)
 
 BROKER = "broker.hivemq.com"  # Public MQTT broker
 PORT = 1883
@@ -52,27 +39,28 @@ def on_message(client, userdata, message):
     try:
         command = json.loads(message.payload.decode())
         print(f"Received command: {command}")
-
+        
         if command.get("spot_id") == 1:  # Only process commands for this spot
             new_status = command.get("status")
 
             # Process status 2 (reserved)
-            if new_status == 2 and current_status == 1:  # Can reserve only if currently free
-                GPIO.output(redled, GPIO.HIGH)  # Yellow color: Red + Green
-                GPIO.output(greenled, GPIO.HIGH)
-                GPIO.output(blueled, GPIO.LOW)
-                rotate_servo(90)  # Rotate servo to 90 degrees
+            if new_status == 2 and current_status == 1:
+                GPIO.output(redled, GPIO.LOW)  # Blue color: Blue LED
+                GPIO.output(greenled, GPIO.LOW)
+                GPIO.output(blueled, GPIO.HIGH)
                 print("Spot reserved.")
                 current_status = new_status
-
+                servo.start(0)
+                servo.ChangeDutyCycle(2)
             # Process status 3 (resume sensor-based detection)
-            elif new_status == 3 and current_status == 2:  # Can resume only if currently reserved
-                rotate_servo(0)  # Rotate servo back to 0 degrees
+            elif new_status == 3 and current_status ==2 :
                 print("Resuming sensor-based detection.")
                 current_status = None  # Reset to allow sensor to control
-
+                servo.start(0)
+                servo.ChangeDutyCycle(6)
             else:
-                print(f"Invalid transition: current_status={current_status}, new_status={new_status}")
+                print("Spot is already taken")
+                current_status = None
     except Exception as e:
         print(f"Error processing command: {e}")
 
@@ -122,7 +110,7 @@ async def main():
     client.subscribe(TOPIC_RECEIVE)
 
     client.loop_start()
-
+    
     spot_id = 1
     print("Monitoring parking spot...")
 
@@ -158,7 +146,6 @@ async def main():
         print("Exiting monitoring...")
     finally:
         GPIO.cleanup()
-        servo.stop()
         client.loop_stop()
         client.disconnect()
 
