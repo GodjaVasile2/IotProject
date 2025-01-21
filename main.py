@@ -40,13 +40,18 @@ def on_message(client, userdata, message):
         if command.get("spot_id") == 1:  # Only process commands for this spot
             new_status = command.get("status")
 
-            # Only process status 2 (reserved)
+            # Process status 2 (reserved)
             if new_status == 2:
-                GPIO.output(redled, GPIO.HIGH)  # Yellow color: Red + Green
-                GPIO.output(greenled, GPIO.HIGH)
-                GPIO.output(blueled, GPIO.LOW)
+                GPIO.output(redled, GPIO.HIGH)  # Blue color: Blue LED
+                GPIO.output(greenled, GPIO.LOW)
+                GPIO.output(blueled, GPIO.HIGH)
                 print("Spot reserved.")
                 current_status = new_status
+
+            # Process status 3 (resume sensor-based detection)
+            elif new_status == 3:
+                print("Resuming sensor-based detection.")
+                current_status = None  # Reset to allow sensor to control
     except Exception as e:
         print(f"Error processing command: {e}")
 
