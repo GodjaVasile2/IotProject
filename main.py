@@ -1,10 +1,10 @@
-#import the libraries used
 import asyncio
 import aiocoap
 import cbor
 import RPi.GPIO as GPIO
 import time
 
+# GPIO setup
 GPIO.setmode(GPIO.BOARD)
 SERVER_URL = "coap://13.53.114.140:3002/parking-status" 
 
@@ -20,8 +20,9 @@ GPIO.setup(redled, GPIO.OUT)
 GPIO.setup(greenled, GPIO.OUT)
 GPIO.setup(blueled, GPIO.OUT)
 
+# Helper function to send parking data
 async def send_parking_data(spot_id, latitude, longitude, status):
-    timestamp = int(time.time() * 1000)  
+    timestamp = int(time.time() * 1000)  # Current timestamp in milliseconds
 
     payload = {
         "timestamp": timestamp,
@@ -49,67 +50,70 @@ async def send_parking_data(spot_id, latitude, longitude, status):
     except Exception as e:
         print(f"Failed to send data: {e}")
 
+# Function to calculate distance using ultrasonic sensor
 def calculate_distance():
- #set the trigger to HIGH
     GPIO.output(trig, GPIO.HIGH)
- #sleep 0.00001 s and the set the trigger to LOW
-    time.sleep(1)
+    time.sleep(0.00001)  # Trigger pulse for 10 microseconds
     GPIO.output(trig, GPIO.LOW)
- #save the start and stop times
+
     start = time.time()
     stop = time.time()
- #modify the start time to be the last time until
- #the echo becomes HIGH
+
+    # Wait for echo to start
     while GPIO.input(echo) == 0:
         start = time.time()
- #modify the stop time to be the last time until
- #the echo becomes LOW
+
+    # Wait for echo to end
     while GPIO.input(echo) == 1:
         stop = time.time()
-#get the duration of the echo pin as HIGH
+
+    # Calculate distance based on duration
     duration = stop - start
- #calculate the distance
-    distance = 34300/2 * duration
-    print(distance)
+    distance = (34300 / 2) * duration
     return distance
 
-GPIO.output(redled, GPIO.LOW)
-GPIO.output(greenled, GPIO.HIGH)
-
-
+# Main logic
 async def main():
     spot_id = "spot_1"
     latitude = 45.1234
     longitude = 25.1234
 
-    print("Type '1' for free, '0' for occupied, or 'q' to quit.")
-    
-    while True:
-        
-        if calculate_distance() < 10:
-            GPIO.output(greenled, GPIO.LOW)
-            GPIO.output(redled, GPIO.HIGH)
-        else:
-            GPIO.output(redled, GPIO.LOW)
-            GPIO.output(greenled, GPIO.HIGH)
-            
-        user_input = input("Enter parking spot status (1/0): ").strip()
+    current_status = None  # None: unknown, 0: occupied, 1: free
 
-        if user_input == "1":
-            await send_parking_data(spot_id, latitude, longitude, 1)
-            print(f"Status for {spot_id} sent as 'free'.")
-        elif user_input == "0":
-            await send_parking_data(spot_id, latitude, longitude, 0)
-            print(f"Status for {spot_id} sent as 'occupied'.")
-        elif user_input.lower() == "q":
-            print("Exiting program.")
+    print("Monitoring parking spot...")
+
+    while True:
+        try:
+            # Measure distance
+            distance = calculate_distance()
+            print(f"Measured Distance: {distance:.2f} cm")
+
+            # Determine status based on distance
+            if distance < 10:
+                new_status = 0  # Occupied
+                GPIO.output(greenled, GPIO.LOW)
+                GPIO.output(redled, GPIO.HIGH)
+            else:
+                new_status = 1  # Free
+                GPIO.output(redled, GPIO.LOW)
+                GPIO.output(greenled, GPIO.HIGH)
+
+            # Send data only if status has changed
+            if new_status != current_status:
+                current_status = new_status
+                await send_parking_data(spot_id, latitude, longitude, current_status)
+                print(f"Status updated and sent: {'Free' if current_status == 1 else 'Occupied'}")
+
+            time.sleep(1)  # Small delay to avoid rapid re-triggering
+        except KeyboardInterrupt:
+            print("Exiting monitoring...")
             break
-        else:
-            print("Invalid input. Type '1', '0', or 'q'.")
+        except Exception as e:
+            print(f"Error: {e}")
+            break
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
-GPIO.cleanup()
-
-
+    try:
+        asyncio.run(main())
+    finally:
+        GPIO.cleanup()
