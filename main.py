@@ -34,6 +34,7 @@ LATITUDE = 45.1234
 LONGITUDE = 25.1234
 
 # Callback for receiving commands from MQTT
+# Callback for receiving commands from MQTT
 def on_message(client, userdata, message):
     global current_status
     try:
@@ -52,17 +53,26 @@ def on_message(client, userdata, message):
                 current_status = new_status
                 servo.start(0)
                 servo.ChangeDutyCycle(2)
+
+                # Send updated status
+                send_parking_data(client, 1, current_status)
+
             # Process status 3 (resume sensor-based detection)
-            elif new_status == 3 and current_status ==2 :
+            elif new_status == 3 and current_status == 2:
                 print("Resuming sensor-based detection.")
                 current_status = None  # Reset to allow sensor to control
                 servo.start(0)
                 servo.ChangeDutyCycle(6)
+
+                # Send updated status
+                send_parking_data(client, 1, current_status)
+
             else:
                 print("Spot is already taken")
                 current_status = None
     except Exception as e:
         print(f"Error processing command: {e}")
+
 
 # Function to calculate distance using ultrasonic sensor
 def calculate_distance():
