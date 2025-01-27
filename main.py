@@ -34,7 +34,6 @@ LATITUDE = 45.1234
 LONGITUDE = 25.1234
 
 # Callback for receiving commands from MQTT
-# Callback for receiving commands from MQTT
 def on_message(client, userdata, message):
     global current_status
     try:
